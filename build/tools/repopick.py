@@ -32,16 +32,19 @@ import textwrap
 from xml.etree import ElementTree
 
 try:
-    # For python3
-    import urllib.error
-    import urllib.request
+    import requests
 except ImportError:
-    # For python2
-    import imp
-    import urllib2
-    urllib = imp.new_module('urllib')
-    urllib.error = urllib2
-    urllib.request = urllib2
+    try:
+        # For python3
+        import urllib.error
+        import urllib.request
+    except ImportError:
+        # For python2
+        import imp
+        import urllib2
+        urllib = imp.new_module('urllib')
+        urllib.error = urllib2
+        urllib.request = urllib2
 
 
 # Verifies whether pathA is a subdirectory (or the same) as pathB
@@ -100,11 +103,29 @@ def fetch_query_via_ssh(remote_url, query):
 
 
 def fetch_query_via_http(remote_url, query):
-
-    """Given a query, fetch the change numbers via http"""
-    url = '{0}/changes/?q={1}&o=CURRENT_REVISION&o=ALL_REVISIONS'.format(remote_url, query)
-    data = urllib.request.urlopen(url).read().decode('utf-8')
-    reviews = json.loads(data[5:])
+    if "requests" in sys.modules:
+        auth = None
+        if os.path.isfile(os.getenv("HOME") + "/.gerritrc"):
+            f = open(os.getenv("HOME") + "/.gerritrc", "r")
+            for line in f:
+                parts = line.rstrip().split("|")
+                if parts[0] in remote_url:
+                    auth = requests.auth.HTTPBasicAuth(username=parts[1], password=parts[2])
+        statusCode = '-1'
+        if auth:
+            url = '{0}/a/changes/?q={1}&o=CURRENT_REVISION&o=ALL_REVISIONS'.format(remote_url, query)
+            data = requests.get(url, auth=auth)
+            statusCode = str(data.status_code)
+        if statusCode != '200':
+            #They didn't get good authorization or data, Let's try the old way
+            url = '{0}/changes/?q={1}&o=CURRENT_REVISION&o=ALL_REVISIONS'.format(remote_url, query)
+            data = requests.get(url)
+        reviews = json.loads(data.text[5:])
+    else:
+        """Given a query, fetch the change numbers via http"""
+        url = '{0}/changes/?q={1}&o=CURRENT_REVISION&o=ALL_REVISIONS'.format(remote_url, query)
+        data = urllib.request.urlopen(url).read().decode('utf-8')
+        reviews = json.loads(data[5:])
 
     for review in reviews:
         review['number'] = review.pop('_number')
@@ -123,7 +144,7 @@ def fetch_query(remote_url, query):
 
 if __name__ == '__main__':
     # Default to LineageOS Gerrit
-    default_gerrit = 'http://review.lineageos.org'
+    default_gerrit = 'https://review.lineageos.org'
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter, description=textwrap.dedent('''\
         repopick.py is a utility to simplify the process of cherry picking
@@ -143,6 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('change_number', nargs='*', help='change number to cherry pick.  Use {change number}/{patchset number} to get a specific revision.')
     parser.add_argument('-i', '--ignore-missing', action='store_true', help='do not error out if a patch applies to a missing directory')
     parser.add_argument('-s', '--start-branch', nargs=1, help='start the specified branch before cherry picking')
+    parser.add_argument('-r', '--reset', action='store_true', help='reset to initial state (abort cherry-pick) if there is a conflict')
     parser.add_argument('-a', '--abandon-first', action='store_true', help='before cherry picking, abandon the branch specified in --start-branch')
     parser.add_argument('-b', '--auto-branch', action='store_true', help='shortcut to "--start-branch auto --abandon-first --ignore-missing"')
     parser.add_argument('-q', '--quiet', action='store_true', help='print as little as possible')
@@ -154,6 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('-Q', '--query', help='pick all commits using the specified query')
     parser.add_argument('-g', '--gerrit', default=default_gerrit, help='Gerrit Instance to use. Form proto://[user@]host[:port]')
     parser.add_argument('-e', '--exclude', nargs=1, help='exclude a list of commit numbers separated by a ,')
+    parser.add_argument('-c', '--check-picked', type=int, default=10, help='pass the amount of commits to check for already picked changes')
     args = parser.parse_args()
     if not args.start_branch and args.abandon_first:
         parser.error('if --abandon-first is set, you must also give the branch name with --start-branch')
@@ -268,6 +291,10 @@ if __name__ == '__main__':
             continue
 
         change = int(change)
+
+        if patchset is not None:
+            patchset = int(patchset)
+
         review = next((x for x in reviews if x['number'] == change), None)
         if review is None:
             print('Change %d not found, skipping' % change)
@@ -286,7 +313,7 @@ if __name__ == '__main__':
         mergables[-1]['id'] = change
         if patchset:
             try:
-                mergables[-1]['fetch'] = [x['fetch'] for x in review['revisions'] if x['_number'] == patchset][0]
+                mergables[-1]['fetch'] = [review['revisions'][x]['fetch'] for x in review['revisions'] if review['revisions'][x]['_number'] == patchset][0]
                 mergables[-1]['id'] = '{0}/{1}'.format(change, patchset)
             except (IndexError, ValueError):
                 args.quiet or print('ERROR: The patch set {0}/{1} could not be found, using CURRENT_REVISION instead.'.format(change, patchset))
@@ -294,7 +321,7 @@ if __name__ == '__main__':
     for item in mergables:
         args.quiet or print('Applying change number {0}...'.format(item['id']))
         # Check if change is open and exit if it's not, unless -f is specified
-        if (item['status'] != 'OPEN' and item['status'] != 'NEW') and not args.query:
+        if (item['status'] != 'OPEN' and item['status'] != 'NEW' and item['status'] != 'DRAFT') and not args.query:
             if args.force:
                 print('!! Force-picking a closed change !!\n')
             else:
@@ -321,7 +348,7 @@ if __name__ == '__main__':
             subprocess.check_output(['repo', 'start', args.start_branch[0], project_path])
 
         # Determine the maximum commits to check already picked changes
-        check_picked_count = 10
+        check_picked_count = args.check_picked
         branch_commits_count = int(subprocess.check_output(['git', 'rev-list', '--count', 'HEAD'], cwd=project_path))
         if branch_commits_count <= check_picked_count:
             check_picked_count = branch_commits_count - 1
@@ -404,7 +431,12 @@ if __name__ == '__main__':
                 cmd_out = None
             result = subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
             if result != 0:
-                print('ERROR: git command failed')
+                if args.reset:
+                    print('ERROR: git command failed, aborting cherry-pick')
+                    cmd = ['git cherry-pick --abort']
+                    subprocess.call(cmd, cwd=project_path, shell=True, stdout=cmd_out, stderr=cmd_out)
+                else:
+                    print('ERROR: git command failed')
                 sys.exit(result)
         if not args.quiet:
             print('')

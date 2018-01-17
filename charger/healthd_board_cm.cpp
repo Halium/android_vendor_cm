@@ -45,6 +45,8 @@
 #define LOGI(x...) do { KLOG_INFO("charger", x); } while (0)
 #define LOGV(x...) do { KLOG_DEBUG("charger", x); } while (0)
 
+static const GRFont* gr_font = NULL;
+
 struct frame {
     int min_capacity;
     GRSurface *surface;
@@ -412,4 +414,13 @@ void healthd_board_mode_charger_set_backlight(bool)
 
 void healthd_board_mode_charger_init(void)
 {
+    GRFont* tmp_font;
+    int res = gr_init_font("font_log", &tmp_font);
+    if (res == 0) {
+        gr_font = tmp_font;
+    } else {
+        LOGW("Couldn't open font, falling back to default!\n");
+        gr_font = gr_sys_font();
+    }
+
 }

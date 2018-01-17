@@ -31,10 +31,6 @@ ifneq ($(TARGET_BUILD_VARIANT),eng)
 ADDITIONAL_DEFAULT_PROPERTIES += ro.adb.secure=1
 endif
 
-# Copy over the changelog to the device
-PRODUCT_COPY_FILES += \
-    vendor/cm/CHANGELOG.mkdn:system/etc/CHANGELOG-CM.txt
-
 # Backup Tool
 PRODUCT_COPY_FILES += \
     vendor/cm/prebuilt/common/bin/backuptool.sh:install/bin/backuptool.sh \
@@ -84,12 +80,14 @@ PRODUCT_COPY_FILES += \
 # Include CM audio files
 include vendor/cm/config/cm_audio.mk
 
-# Theme engine
-include vendor/cm/config/themes_common.mk
-
 ifneq ($(TARGET_DISABLE_CMSDK), true)
 # CMSDK
 include vendor/cm/config/cmsdk_common.mk
+endif
+
+# TWRP
+ifeq ($(WITH_TWRP),true)
+include vendor/cm/config/twrp.mk
 endif
 
 # Bootanimation
@@ -121,14 +119,13 @@ PRODUCT_PACKAGES += \
 PRODUCT_PACKAGES += \
     AudioFX \
     CMSettingsProvider \
-    CMUpdater \
-    CustomTiles \
     LineageSetupWizard \
     Eleven \
     ExactCalculator \
-    LiveLockScreenService \
+    Jelly \
     LockClock \
     Trebuchet \
+    Updater \
     WallpaperPicker \
     WeatherProvider
 
@@ -306,15 +303,24 @@ ifeq ($(CM_BUILDTYPE), RELEASE)
     endif
 else
     ifeq ($(CM_VERSION_MAINTENANCE),0)
-        LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR)-$(shell date -u +%Y%m%d)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        ifeq ($(LINEAGE_VERSION_APPEND_TIME_OF_DAY), TRUE)
+            LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR)-$(shell date -u +%Y%m%d_%H%M%S)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        else
+            LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR)-$(shell date -u +%Y%m%d)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        endif
     else
-        LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR).$(CM_VERSION_MAINTENANCE)-$(shell date -u +%Y%m%d)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        ifeq ($(LINEAGE_VERSION_APPEND_TIME_OF_DAY), TRUE)
+            LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR).$(CM_VERSION_MAINTENANCE)-$(shell date -u +%Y%m%d_%H%M%S)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        else
+            LINEAGE_VERSION := $(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR).$(CM_VERSION_MAINTENANCE)-$(shell date -u +%Y%m%d)-$(CM_BUILDTYPE)$(CM_EXTRAVERSION)-$(CM_BUILD)
+        endif
     endif
 endif
 
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.cm.version=$(LINEAGE_VERSION) \
     ro.cm.releasetype=$(CM_BUILDTYPE) \
+    ro.cm.build.version=$(PRODUCT_VERSION_MAJOR).$(PRODUCT_VERSION_MINOR) \
     ro.modversion=$(LINEAGE_VERSION) \
     ro.cmlegal.url=https://lineageos.org/legal
 

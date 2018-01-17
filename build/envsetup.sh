@@ -80,9 +80,7 @@ alias bib=breakfast
 function eat()
 {
     if [ "$OUT" ] ; then
-        MODVERSION=$(get_build_var LINEAGE_VERSION)
-        ZIPFILE=lineage-$MODVERSION.zip
-        ZIPPATH=$OUT/$ZIPFILE
+        ZIPPATH=`ls -tr "$OUT"/lineage-*.zip | tail -1`
         if [ ! -f $ZIPPATH ] ; then
             echo "Nothing to eat"
             return 1
@@ -244,13 +242,18 @@ function cmremote()
         return 1
     fi
     git remote rm cmremote 2> /dev/null
-    GERRIT_REMOTE=$(git config --get remote.github.projectname)
-    CMUSER=$(git config --get review.review.lineageos.org.username)
+    local GERRIT_REMOTE=$(git config --get remote.github.projectname)
+    if [ -z "$GERRIT_REMOTE" ]
+    then
+        local GERRIT_REMOTE=$(git config --get remote.aosp.projectname | sed s#platform/#android/#g | sed s#/#_#g)
+        local PFX="LineageOS/"
+    fi
+    local CMUSER=$(git config --get review.review.lineageos.org.username)
     if [ -z "$CMUSER" ]
     then
-        git remote add cmremote ssh://review.lineageos.org:29418/$GERRIT_REMOTE
+        git remote add cmremote ssh://review.lineageos.org:29418/$PFX$GERRIT_REMOTE
     else
-        git remote add cmremote ssh://$CMUSER@review.lineageos.org:29418/$GERRIT_REMOTE
+        git remote add cmremote ssh://$CMUSER@review.lineageos.org:29418/$PFX$GERRIT_REMOTE
     fi
     echo "Remote 'cmremote' created"
 }
@@ -263,10 +266,10 @@ function aospremote()
         return 1
     fi
     git remote rm aosp 2> /dev/null
-    PROJECT=$(pwd -P | sed -e "s#$ANDROID_BUILD_TOP\/##; s#-caf.*##; s#\/default##")
+    local PROJECT=$(pwd -P | sed -e "s#$ANDROID_BUILD_TOP\/##; s#-caf.*##; s#\/default##")
     if (echo $PROJECT | grep -qv "^device")
     then
-        PFX="platform/"
+        local PFX="platform/"
     fi
     git remote add aosp https://android.googlesource.com/$PFX$PROJECT
     echo "Remote 'aosp' created"
@@ -280,10 +283,10 @@ function cafremote()
         return 1
     fi
     git remote rm caf 2> /dev/null
-    PROJECT=$(pwd -P | sed -e "s#$ANDROID_BUILD_TOP\/##; s#-caf.*##; s#\/default##")
+    local PROJECT=$(pwd -P | sed -e "s#$ANDROID_BUILD_TOP\/##; s#-caf.*##; s#\/default##")
     if (echo $PROJECT | grep -qv "^device")
     then
-        PFX="platform/"
+        local PFX="platform/"
     fi
     git remote add caf https://source.codeaurora.org/quic/la/$PFX$PROJECT
     echo "Remote 'caf' created"
@@ -322,12 +325,15 @@ function installboot()
     if (adb shell getprop ro.cm.device | grep -q "$CM_BUILD");
     then
         adb push $OUT/boot.img /cache/
-        for i in $OUT/system/lib/modules/*;
-        do
-            adb push $i /system/lib/modules/
-        done
+        if [ -e "$OUT/system/lib/modules/*" ];
+        then
+            for i in $OUT/system/lib/modules/*;
+            do
+                adb push $i /system/lib/modules/
+            done
+            adb shell chmod 644 /system/lib/modules/*
+        fi
         adb shell dd if=/cache/boot.img of=$PARTITION
-        adb shell chmod 644 /system/lib/modules/*
         echo "Installation complete."
     else
         echo "The connected device does not appear to be $CM_BUILD, run away!"
