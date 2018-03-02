@@ -28,7 +28,7 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     B_FAMILY := msm8226 msm8610 msm8974
     B64_FAMILY := msm8992 msm8994
     BR_FAMILY := msm8909 msm8916
-    UM_FAMILY := msm8937 msm8953
+    UM_FAMILY := msm8937 msm8953 msm8996
 
     qcom_flags := -DQCOM_HARDWARE
     qcom_flags += -DQCOM_BSP
@@ -51,15 +51,21 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
         endif
     endif
 
+    # Allow building audio encoders
+    TARGET_USES_QCOM_MM_AUDIO := true
+
     # Enable extra offloading for post-805 targets
     ifneq ($(filter msm8992 msm8994,$(TARGET_BOARD_PLATFORM)),)
         qcom_flags += -DHAS_EXTRA_FLAC_METADATA
     endif
 
-    # Enable color metadata for 8xx UM targets
-    ifneq ($(filter msm8996 msm8998,$(TARGET_BOARD_PLATFORM)),)
+    # Enable color metadata for modern UM targets
+    ifneq ($(filter msm8996 msm8998 sdm660,$(TARGET_BOARD_PLATFORM)),)
         TARGET_USES_COLOR_METADATA := true
     endif
+
+    # List of targets that use master side content protection
+    MASTER_SIDE_CP_TARGET_LIST := msm8996 msm8998 sdm660
 
     TARGET_GLOBAL_CFLAGS += $(qcom_flags)
     TARGET_GLOBAL_CPPFLAGS += $(qcom_flags)
@@ -86,7 +92,7 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     else
     ifeq ($(call is-board-platform-in-list, $(UM_FAMILY)),true)
         MSM_VIDC_TARGET_LIST := $(UM_FAMILY)
-        QCOM_HARDWARE_VARIANT := msm8937
+        QCOM_HARDWARE_VARIANT := msm8996
     else
         MSM_VIDC_TARGET_LIST := $(TARGET_BOARD_PLATFORM)
         QCOM_HARDWARE_VARIANT := $(TARGET_BOARD_PLATFORM)
@@ -95,9 +101,9 @@ ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
     endif
     endif
 
-$(call project-set-path,qcom-audio,hardware/qcom/audio-caf/$(QCOM_HARDWARE_VARIANT))
-$(call project-set-path,qcom-display,hardware/qcom/display-caf/$(QCOM_HARDWARE_VARIANT))
-$(call project-set-path,qcom-media,hardware/qcom/media-caf/$(QCOM_HARDWARE_VARIANT))
+$(call set-device-specific-path,AUDIO,audio,hardware/qcom/audio-caf/$(QCOM_HARDWARE_VARIANT))
+$(call set-device-specific-path,DISPLAY,display,hardware/qcom/display-caf/$(QCOM_HARDWARE_VARIANT))
+$(call set-device-specific-path,MEDIA,media,hardware/qcom/media-caf/$(QCOM_HARDWARE_VARIANT))
 
 $(call set-device-specific-path,CAMERA,camera,hardware/qcom/camera)
 $(call set-device-specific-path,GPS,gps,hardware/qcom/gps)
